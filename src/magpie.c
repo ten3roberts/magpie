@@ -58,9 +58,9 @@ int mp_terminate_internal(struct MemBlock* head)
 	int remaining_blocks = 1;
 	char msg[1024];
 	snprintf(msg, sizeof msg,
-			"Memory block allocated at %s:%u with a size of %zu bytes has not been freed. Block was allocation num %zu "
-			"from that line",
-			head->file, head->line, head->size, head->num);
+			 "Memory block allocated at %s:%u with a size of %zu bytes has not been freed. Block was repeated "
+			 "allocation num %zu",
+			 head->file, head->line, head->size, head->num);
 	MSG(msg);
 	if (head->less)
 		remaining_blocks += mp_terminate_internal(head->less);
@@ -222,12 +222,14 @@ void mp_insert(struct MemBlock* block)
 
 	// Insert block's children as well
 	// Used by mp_free
-	//mp_insert(block->less);
-	//mp_insert(block->more);
+	// mp_insert(block->less);
+	// mp_insert(block->more);
 }
 
 struct MemBlock* mp_search(struct MemBlock* head, void* ptr)
 {
+	if (head == NULL)
+		return NULL;
 	if (head->ptr == ptr)
 		return head;
 	struct MemBlock* result = NULL;

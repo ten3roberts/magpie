@@ -6,13 +6,17 @@
 
 int main()
 {
-	// free(a);
-	char* strings[100];
-	for (size_t i = 0; i < 100; i++)
+// free(a);
+#define SIZE 100
+	char* strings[SIZE];
+	for (size_t i = 0; i < SIZE; i++)
 	{
+		if (i % 100 == 0)
+			printf("i  : %d\n", i);
 		strings[i] = malloc(512);
+		//free(strings[i]);
 	}
-	for (size_t i = 0; i < 100; i++)
+	for (size_t i = 0; i < SIZE; i++)
 	{
 		if (i == 50)
 			continue;
