@@ -40,6 +40,39 @@ void mp_insert(struct MemBlock* block);
 // Searches for the pointer in the tree
 struct MemBlock* mp_search(struct MemBlock* head, void* ptr);
 
+size_t mp_get_count()
+{
+	return alloc_count;
+}
+
+size_t mp_get_size()
+{
+	return alloc_size;
+}
+
+int mp_terminate_internal(struct MemBlock* head)
+{
+	if (head == NULL)
+		return 0;
+
+	int remaining_blocks = 1;
+	char msg[1024];
+	snprintf(msg, sizeof msg,
+			"Memory block allocated at %s:%u with a size of %zu bytes has not been freed. Block was allocation num %zu "
+			"from that line",
+			head->file, head->line, head->size, head->num);
+	MSG(msg);
+	if (head->less)
+		remaining_blocks += mp_terminate_internal(head->less);
+	if (head->more)
+		remaining_blocks += mp_terminate_internal(head->more);
+}
+
+int mp_terminate()
+{
+	return mp_terminate_internal(blocks);
+}
+
 void* mp_malloc(size_t size, const char* file, uint32_t line)
 {
 	struct MemBlock* new_block = malloc(sizeof(struct MemBlock));
@@ -55,6 +88,7 @@ void* mp_malloc(size_t size, const char* file, uint32_t line)
 	}
 	alloc_count++;
 	alloc_size += size;
+	new_block->size += size;
 	new_block->file = file;
 	new_block->line = line;
 	new_block->parent = NULL;
@@ -100,10 +134,11 @@ void mp_free(void* ptr, const char* file, uint32_t line)
 	if (block == NULL)
 	{
 		char msg[1024];
-		snprintf(msg, sizeof msg, "%s:%u Freeing invalid pointer with adress %p", file, line, ptr);
+		snprintf(msg, sizeof msg, "%s:%u Freeing invalid or freed pointer with adress %p", file, line, ptr);
 		MSG(msg);
+		return;
 	}
-	alloc_count-;
+	alloc_count--;
 	alloc_size -= block->size;
 	// Remove from tree
 	// Detach
@@ -121,6 +156,7 @@ void mp_free(void* ptr, const char* file, uint32_t line)
 		parent->more = NULL;
 	}
 	// Reattach children
+
 	mp_insert(block->less);
 	mp_insert(block->more);
 
@@ -148,7 +184,6 @@ void mp_insert(struct MemBlock* block)
 		{
 			if (it->less == NULL)
 			{
-				MSG("less");
 				block->parent = it;
 				it->less = block;
 				break;
@@ -159,7 +194,6 @@ void mp_insert(struct MemBlock* block)
 		{
 			if (it->more == NULL)
 			{
-				MSG("more");
 				block->parent = it;
 				it->more = block;
 				break;
@@ -178,7 +212,6 @@ void mp_insert(struct MemBlock* block)
 			// Traverse to more if equal line count
 			if (it->more == NULL)
 			{
-				MSG("dup");
 				block->parent = it;
 				it->more = block;
 				break;
@@ -189,8 +222,8 @@ void mp_insert(struct MemBlock* block)
 
 	// Insert block's children as well
 	// Used by mp_free
-	mp_insert(block->less);
-	mp_insert(block->more);
+	//mp_insert(block->less);
+	//mp_insert(block->more);
 }
 
 struct MemBlock* mp_search(struct MemBlock* head, void* ptr)

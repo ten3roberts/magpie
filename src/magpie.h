@@ -6,12 +6,24 @@
 #define MP_STATUS 0
 #define MP_ERROR  1
 
-
+// Sets the message callback function
+// Default function is puts if not set
+// Set to NULL to quiet
+void mp_set_msgcallback(void (*func)(const char* msg));
 // Returns the number of blocks allocated
 size_t mp_get_count();
 
 // Returns the number of bytes allocated
 size_t mp_get_size();
+
+// Checks if any blocks remain to be freed
+// Should be run at the end of the program execution
+// Uses the msg
+// Returns how many blocks of memory that aren't freed
+int mp_terminate();
+
+// Checks for buffer overruns
+int mp_validate();
 
 void* mp_malloc(size_t size, const char* file, uint32_t line);
 void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line);

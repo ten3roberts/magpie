@@ -6,22 +6,21 @@
 
 int main()
 {
-	char* a = A();
-	char* b = B();
-	free(a);
-	//free(a);
-	a = A();
-	char* c = malloc(120);
-	free(a);
-	//b = calloc(1, 120);
-
-	for (size_t i = 0; i < 1000; i++)
+	// free(a);
+	char* strings[100];
+	for (size_t i = 0; i < 100; i++)
 	{
-		// free(strings);
+		strings[i] = malloc(512);
+	}
+	for (size_t i = 0; i < 100; i++)
+	{
+		if (i == 50)
+			continue;
+		free(strings[i]);
 	}
 	puts("Done");
-	free(a);
-	free(b);
-	free(c);
+	printf("count %zu\n", mp_get_count());
+	printf("size %zu\n", mp_get_size());
+	mp_terminate();
 	return 0;
 }
