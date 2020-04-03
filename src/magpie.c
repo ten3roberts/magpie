@@ -79,8 +79,8 @@ size_t mp_hash_ptr(void* ptr)
 // Inserts block and correctly resizes the hashtable
 void mp_insert(struct MemBlock* block);
 
-// Reinserts a block without addng to count and discards chain
-void mp_reinsert(struct MemBlock* block);
+// Resizes the list either up (1) or down (-1), does nothing if incorrect value
+void mp_resize(int direction);
 
 // Searches for the pointer in the tree
 struct MemBlock* mp_search(void* ptr);
@@ -104,20 +104,28 @@ int mp_terminate()
 	char msg[1024];
 	int remaining_blocks = 0;
 
-	for (size_t i = 0, j = phashtable.count; i < phashtable.size; i++)
+	for (size_t i = 0; i < phashtable.size; i++)
 	{
 		struct MemBlock* it = phashtable.items[i];
+		struct MemBlock* next = NULL;
 		while (it)
 		{
-			j--;
+			next = it->next;
 			snprintf(msg, sizeof msg,
 					 "Memory block allocated at %s:%u with a size of %zu bytes has not been freed. Block was "
 					 "allocation num %zu",
 					 it->file, it->line, it->size, it->num);
 			MSG(msg);
-			it = it->next;
+
+			free(it->ptr);
+			free(it);
+			it = next;
 		}
 	}
+	free(phashtable.items);
+	phashtable.items = NULL;
+	phashtable.count = 0;
+	phashtable.size = 0;
 	return remaining_blocks;
 }
 
@@ -136,7 +144,7 @@ void* mp_malloc(size_t size, const char* file, uint32_t line)
 	}
 	alloc_count++;
 	alloc_size += size;
-	new_block->size += size;
+	new_block->size = size;
 	new_block->num = alloc_count;
 	new_block->file = file;
 	new_block->line = line;
@@ -162,7 +170,7 @@ void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
 	}
 	alloc_count++;
 	alloc_size += num * size;
-	new_block->size = size;
+	new_block->size = num * size;
 	new_block->file = file;
 	new_block->line = line;
 	new_block->next = NULL;
@@ -199,34 +207,12 @@ void mp_insert(struct MemBlock* block)
 	// Hash the pointer
 	if (phashtable.size == 0)
 	{
-		phashtable.size = 4;
+		phashtable.size = 16;
 		phashtable.items = calloc(phashtable.size, sizeof(*phashtable.items));
 	}
-	if (phashtable.count >= phashtable.size * 0.7)
+	if (phashtable.count + 1 >= phashtable.size * 0.7)
 	{
-		MSG("Resizing");
-		size_t old_size = phashtable.size;
-		phashtable.size *= 2;
-
-		struct MemBlock** old_items = phashtable.items;
-		phashtable.items = calloc(phashtable.size, sizeof(*phashtable.items));
-
-		// Count will be reincreased when reinserting items
-		phashtable.count = 0;
-		// Rehash and insert
-		for (size_t i = 0; i < old_size; i++)
-		{
-			struct MemBlock* it = old_items[i];
-			// Save the next since it will be cleared in the iterator when inserting
-			struct MemBlock* next;
-			while (it)
-			{
-				next = it->next;
-				mp_insert(it);
-				it = next;
-			}
-		}
-		free(old_items);
+		mp_resize(1);
 	}
 	size_t hash = mp_hash_ptr(block->ptr);
 	struct MemBlock* it = phashtable.items[hash];
@@ -246,6 +232,38 @@ void mp_insert(struct MemBlock* block)
 		}
 		it->next = block;
 	}
+}
+
+void mp_resize(int direction)
+{
+	MSG("Resizing");
+	size_t old_size = phashtable.size;
+	if (direction == 1)
+		phashtable.size *= 2;
+	else if (direction == -1)
+		phashtable.size /= 2;
+	else
+		return;
+
+	struct MemBlock** old_items = phashtable.items;
+	phashtable.items = calloc(phashtable.size, sizeof(struct MemBlock*));
+
+	// Count will be reincreased when reinserting items
+	phashtable.count = 0;
+	// Rehash and insert
+	for (size_t i = 0; i < old_size; i++)
+	{
+		struct MemBlock* it = old_items[i];
+		// Save the next since it will be cleared in the iterator when inserting
+		struct MemBlock* next = NULL;
+		while (it)
+		{
+			next = it->next;
+			mp_insert(it);
+			it = next;
+		}
+	}
+	free(old_items);
 }
 
 struct MemBlock* mp_search(void* ptr)
@@ -285,6 +303,13 @@ struct MemBlock* mp_remove(void* ptr)
 			{
 				phashtable.items[hash] = it->next;
 			}
+
+			// Check for resize down
+			if (phashtable.count - 1 <= phashtable.size * 0.4)
+			{
+				mp_resize(-1);
+			}
+
 			return it;
 		}
 		prev = it;

@@ -6,17 +6,24 @@
 
 int main(int argc, char** argv)
 {
-#define SIZE 0xffffff
+	size_t size = 1000;
+	if (argc > 1)
+	{
+		size = atoi(argv[1]);
+	}
 
-	char** strings = malloc(SIZE * sizeof(char*));
-	printf("Allocating %zu strings\n", SIZE);
-	for (size_t i = 0; i < SIZE; i++)
+	char** strings = malloc(size * sizeof(char*));
+	printf("Allocating %zu strings\n", size);
+	for (size_t i = 0; i < size; i++)
 	{
 		strings[i] = malloc(512);
 	}
+	malloc(1000);
 	size_t skipped = 0;
-	for (size_t i = 0; i < SIZE; i++)
+	for (size_t i = 0; i < size; i++)
 	{
+		if (i % 50 == 0)
+			continue;
 		free(strings[i]);
 	}
 	free(strings);
