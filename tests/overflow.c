@@ -14,8 +14,9 @@ int main(int argc, char** argv)
 	{
 		str[i] = rand() % ('z' - '0') + '0';
 	}
-	puts(str);
+	str[size+1] = '\0';
 	free(str);
+	puts(str);
 	puts("Done");
 	mp_print_locations();
 	(void)mp_terminate();

@@ -152,8 +152,7 @@ size_t mp_terminate()
 					 "allocation num %u",
 					 it->file, it->line, it->size, it->count);
 			MSG(msg);
-
-			free(it);
+			mp_free(it->bytes);
 			it = next;
 		}
 	}
@@ -178,11 +177,34 @@ size_t mp_terminate()
 	return remaining_blocks;
 }
 
-int mp_validate(void* ptr)
+int mp_validate_internal(void* ptr, const char* file, uint32_t line)
 {
+	struct MemBlock* block = mp_search(ptr);
+	if (block == NULL)
+	{
+		char msg[1024];
+		snprintf(msg, sizeof msg, "%s:%u Validation of invalid or already freed pointer with adress %p", file, line, ptr);
+		MSG(msg);
+		return MP_VALIDATE_INVALID;
+	}
+	// Check integrity of buffer padding to detect overflows/overruns
+	size_t i = 0;
+	char* p = block->bytes + block->size;
+	for (i = 0; i < MP_BUFFER_PAD_LEN; i++, p++)
+	{
+		if (*p != MP_BUFFER_PAD_VAL)
+		{
+			char msg[1024];
+			snprintf(msg, sizeof msg, "Buffer overflow after %zu bytes on pointer %p allocated at %s:%u", block->size,
+					 ptr, block->file, block->line);
+			MSG(msg);
+			return MP_VALIDATE_OVERFLOW;
+		}
+	}
+	return MP_VALIDATE_OK;
 }
 
-void* mp_malloc(size_t size, const char* file, uint32_t line)
+void* mp_malloc_internal(size_t size, const char* file, uint32_t line)
 {
 	// Allocate size for the block info and the buffer requested
 	struct MemBlock* new_block = malloc(sizeof(struct MemBlock) + size - 1 + MP_BUFFER_PAD_LEN);
@@ -212,7 +234,7 @@ void* mp_malloc(size_t size, const char* file, uint32_t line)
 
 	return new_block->bytes;
 }
-void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
+void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t line)
 {
 	// Allocate size for the block info and the buffer requested
 	struct MemBlock* new_block = calloc(1, sizeof(struct MemBlock) + num * size - 1 + MP_BUFFER_PAD_LEN);
@@ -242,9 +264,9 @@ void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
 
 	return new_block->bytes;
 }
-void* mp_realloc(void* ptr, size_t size, const char* file, uint32_t line);
+void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t line);
 
-void mp_free(void* ptr, const char* file, uint32_t line)
+void mp_free_internal(void* ptr, const char* file, uint32_t line)
 {
 	struct MemBlock* block = mp_remove(ptr);
 	if (block == NULL)
@@ -406,6 +428,23 @@ void mp_resize(int direction)
 		}
 	}
 	free(old_items);
+}
+
+struct MemBlock* mp_search(void* ptr)
+{
+	size_t hash = mp_hash_ptr(ptr);
+	struct MemBlock* it = phashtable.items[hash];
+
+	// Search chain for the correct pointer
+	while (it)
+	{
+		if (it->bytes == ptr)
+		{
+			return it;
+		}
+		it = it->next;
+	}
+	return NULL;
 }
 
 struct MemBlock* mp_remove(void* ptr)

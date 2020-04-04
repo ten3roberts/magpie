@@ -7,8 +7,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#define MP_STATUS 0
-#define MP_ERROR  1
+#define MP_VALIDATE_OK 0
+#define MP_VALIDATE_INVALID -1
+#define MP_VALIDATE_OVERFLOW -2
 
 // Sets the message callback function
 // Default function is puts if not set
@@ -28,23 +29,30 @@ void mp_print_locations();
 // Uses the msg
 // Returns how many blocks of memory that weren't freed
 // Frees any remaining blocks
-//Releases all internal resources
+// Releases all internal resources
 size_t mp_terminate();
 
-// Checks for buffer overruns
-int mp_validate(void* ptr);
+// Checks for buffer overruns and pointer life
+// Returns MP_VALIDATE_[OK,INVALID,OVERFLOW]
+int mp_validate_internal(void* ptr, const char* file, uint32_t line);
 
-void* mp_malloc(size_t size, const char* file, uint32_t line);
-void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line);
-void* mp_realloc(void* ptr, size_t size, const char* file, uint32_t line);
+void* mp_malloc_internal(size_t size, const char* file, uint32_t line);
+void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t line);
+void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t line);
+void mp_free_internal(void* ptr, const char* file, uint32_t line);
 
-void mp_free(void* ptr, const char* file, uint32_t line);
+
+#define mp_validate(ptr) mp_validate_internal(ptr, __FILE__, __LINE__)
+#define mp_malloc(size)		  mp_malloc_internal(size, __FILE__, __LINE__)
+#define mp_calloc(num, size)  mp_calloc_internal(num, size, __FILE__, __LINE__)
+#define mp_realloc(ptr, size) mp_realloc_internal(ptr, size, __FILE__, __LINE__)
+#define mp_free(ptr)		  mp_free_internal(ptr, __FILE__, __LINE__)
 
 #ifdef MP_REPLACE_STD
-#define malloc(size)	   mp_malloc(size, __FILE__, __LINE__);
-#define calloc(num, size)  mp_calloc(num, size, __FILE__, __LINE__);
-#define realloc(ptr, size) mp_realloc(ptr, size, __FILE__, __LINE__);
-#define free(ptr)		   mp_free(ptr, __FILE__, __LINE__);
+#define malloc(size)	   mp_malloc_internal(size, __FILE__, __LINE__);
+#define calloc(num, size)  mp_calloc_internal(num, size, __FILE__, __LINE__);
+#define realloc(ptr, size) mp_realloc_internal(ptr, size, __FILE__, __LINE__);
+#define free(ptr)		   mp_free_internal(ptr, __FILE__, __LINE__);
 #endif
 
 #endif

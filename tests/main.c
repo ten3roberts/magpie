@@ -29,7 +29,6 @@ int main(int argc, char** argv)
 		}
 		free(strings[i]);
 	}
-	free(strings);
 	puts("Done");
 	printf("remaining count %zu\n", mp_get_count());
 	printf("Skipped %zu\n", skipped);
