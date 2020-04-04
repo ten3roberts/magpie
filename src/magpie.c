@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #define MP_CHECK_OVERFLOW
+#define MP_FILL_ON_FREE
 
 #ifndef MP_BUFFER_PAD_LEN
 #define MP_BUFFER_PAD_LEN 5
@@ -183,7 +184,8 @@ int mp_validate_internal(void* ptr, const char* file, uint32_t line)
 	if (block == NULL)
 	{
 		char msg[1024];
-		snprintf(msg, sizeof msg, "%s:%u Validation of invalid or already freed pointer with adress %p", file, line, ptr);
+		snprintf(msg, sizeof msg, "%s:%u Validation of invalid or already freed pointer with adress %p", file, line,
+				 ptr);
 		MSG(msg);
 		return MP_VALIDATE_INVALID;
 	}
@@ -293,7 +295,11 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 			break;
 		}
 	}
-	free(block);
+
+#ifdef MP_FILL_ON_FREE
+	memset(block->bytes, MP_BUFFER_PAD_VAL, block->size);
+#endif
+		free(block);
 }
 
 void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
