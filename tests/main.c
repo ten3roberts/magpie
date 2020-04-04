@@ -6,7 +6,7 @@
 
 int main(int argc, char** argv)
 {
-	size_t size = 1000000;
+	size_t size = 100000;
 	if (argc > 1)
 	{
 		size = atoi(argv[1]);
@@ -18,11 +18,15 @@ int main(int argc, char** argv)
 	{
 		strings[i] = malloc(512);
 	}
-	for (int i = 0; i < 15; i++)
-		free(A());
+	char* s = A();
 	size_t skipped = 0;
 	for (size_t i = 0; i < size; i++)
 	{
+		if (rand() % 10000 == 0)
+		{
+			skipped++;
+			continue;
+		}
 		free(strings[i]);
 	}
 	free(strings);
@@ -30,7 +34,8 @@ int main(int argc, char** argv)
 	printf("remaining count %zu\n", mp_get_count());
 	printf("Skipped %zu\n", skipped);
 	printf("size %zu\n", mp_get_size());
+	free(s);
 	mp_print_locations();
-	mp_terminate();
+	(void)mp_terminate();
 	return 0;
 }

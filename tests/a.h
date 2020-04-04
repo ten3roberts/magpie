@@ -4,6 +4,6 @@
 // Allocates on the same line as B
 char* A()
 {
-	char* s = malloc(100);
+	char* s = calloc(100, 1);
 	return s;
 }

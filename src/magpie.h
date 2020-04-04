@@ -1,5 +1,9 @@
 #ifndef MAGPIE_H
 #define MAGPIE_H
+
+#ifdef _STDLIB_H
+#error "stdlib.h should not be included before magpie.h"
+#endif
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -20,10 +24,12 @@ size_t mp_get_size();
 void mp_print_locations();
 
 // Checks if any blocks remain to be freed
-// Should be run at the end of the program execution
+// Should only be run at the end of the program execution
 // Uses the msg
-// Returns how many blocks of memory that aren't freed
-int mp_terminate();
+// Returns how many blocks of memory that weren't freed
+// Frees any remaining blocks
+//Releases all internal resources
+size_t mp_terminate();
 
 // Checks for buffer overruns
 int mp_validate(void* ptr);

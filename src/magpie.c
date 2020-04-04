@@ -1,9 +1,11 @@
-#undef MAGPIE_REPLACE_STD
+#undef MP_REPLACE_STD
 #include "magpie.h"
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
 #include <stdlib.h>
+
+#define MP_CHECK_OVERFLOW
 
 // The number of allocated blocks of memory
 size_t alloc_count = 0;
@@ -25,12 +27,12 @@ void (*msg_func)(const char* msg) = msg_default;
 // A memory block stored based on line of initial allocation in a binary tree
 struct MemBlock
 {
-	void* ptr;
 	size_t size;
 	const char* file;
 	uint32_t line;
 	uint32_t count;
 	struct MemBlock* next;
+	char bytes[1];
 };
 
 struct PHashTable
@@ -56,7 +58,6 @@ struct PAllocLocation
 
 static struct PHashTable phashtable = {0};
 static struct PAllocLocation* locations = NULL;
-static size_t location_count = 0;
 
 // Hash functions from https://gist.github.com/badboy/6267743
 #if SIZE_MAX == 0xffffffff // 32 bit
@@ -100,7 +101,7 @@ void mp_resize(int direction);
 // Searches for the pointer in the tree
 struct MemBlock* mp_search(void* ptr);
 
-// Searches and removes a memblock from the hashmap
+// Searches and removes a memblock storing the ptr from the hashmap
 // Returns the memblock, or NULL if failed
 struct MemBlock* mp_remove(void* ptr);
 
@@ -120,16 +121,16 @@ void mp_print_locations()
 	while (it)
 	{
 		char msg[1024];
-		snprintf(msg, sizeof(msg), "Allocator at %s:%zu made %u allocations", it->file, it->line, it->count);
+		snprintf(msg, sizeof msg, "Allocator at %s:%u made %u allocations", it->file, it->line, it->count);
 		MSG(msg);
 		it = it->next;
 	}
 }
 
-int mp_terminate()
+size_t mp_terminate()
 {
 	char msg[1024];
-	int remaining_blocks = 0;
+	size_t remaining_blocks = 0;
 
 	// Free remaining blocks
 	for (size_t i = 0; i < phashtable.size; i++)
@@ -142,15 +143,16 @@ int mp_terminate()
 			next = it->next;
 			snprintf(msg, sizeof msg,
 					 "Memory block allocated at %s:%u with a size of %zu bytes has not been freed. Block was "
-					 "allocation num %zu",
+					 "allocation num %u",
 					 it->file, it->line, it->size, it->count);
 			MSG(msg);
 
-			free(it->ptr);
 			free(it);
 			it = next;
 		}
 	}
+	snprintf(msg, sizeof msg, "A total of %zu memory blocks remain to be freed after program execution", remaining_blocks);
+	MSG(msg);
 	free(phashtable.items);
 	phashtable.items = NULL;
 	phashtable.count = 0;
@@ -158,9 +160,10 @@ int mp_terminate()
 
 	// Free the location list
 	struct PAllocLocation* it = locations;
-	struct PAllocLocation* next = it->next;
+	struct PAllocLocation* next = NULL;
 	while (it)
 	{
+		next = it->next;
 		free(it);
 		it = next;
 	}
@@ -168,13 +171,16 @@ int mp_terminate()
 	return remaining_blocks;
 }
 
+int mp_validate(void* ptr)
+{
+}
+
 void* mp_malloc(size_t size, const char* file, uint32_t line)
 {
-	struct MemBlock* new_block = malloc(sizeof(struct MemBlock));
-
+	// Allocate size for the block info and the buffer requested
+	struct MemBlock* new_block = malloc(sizeof(struct MemBlock) + size - 1 + BUFFER_PAD);
 	// Allocate request
-	new_block->ptr = malloc(size + BUFFER_PAD);
-	if (new_block->ptr == NULL)
+	if (new_block == NULL)
 	{
 		char msg[1024];
 		snprintf(msg, sizeof msg, "%s:%d Failed to allocate memory for %zu bytes", file, line, size);
@@ -191,15 +197,14 @@ void* mp_malloc(size_t size, const char* file, uint32_t line)
 	// Insert
 	mp_insert(new_block, file, line);
 
-	return new_block->ptr;
+	return new_block->bytes;
 }
 void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
 {
-	struct MemBlock* new_block = malloc(sizeof(struct MemBlock));
+	// Allocate size for the block info and the buffer requested
+	struct MemBlock* new_block = calloc(1, sizeof(struct MemBlock) + num * size - 1 + BUFFER_PAD);
 
-	// Allocate request
-	new_block->ptr = calloc(num + 1, size);
-	if (new_block->ptr == NULL)
+	if (new_block == NULL)
 	{
 		char msg[1024];
 		snprintf(msg, sizeof msg, "%s:%u Failed to allocate memory for %zu bytes", file, line, size * num);
@@ -215,14 +220,12 @@ void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
 	// Insert
 	mp_insert(new_block, file, line);
 
-	return new_block->ptr;
+	return new_block->bytes;
 }
 void* mp_realloc(void* ptr, size_t size, const char* file, uint32_t line);
 
 void mp_free(void* ptr, const char* file, uint32_t line)
 {
-	static int i = 0;
-	i++;
 	struct MemBlock* block = mp_remove(ptr);
 	if (block == NULL)
 	{
@@ -235,7 +238,6 @@ void mp_free(void* ptr, const char* file, uint32_t line)
 	alloc_size -= block->size;
 
 	// TODO check overflow
-	free(ptr);
 	free(block);
 }
 
@@ -253,7 +255,8 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 		mp_resize(1);
 	}
 	{
-		size_t hash = mp_hash_ptr(block->ptr);
+		// Takes the hash of the bytes pointer of the block
+		size_t hash = mp_hash_ptr(block->bytes);
 		struct MemBlock* it = phashtable.items[hash];
 
 		if (it == NULL)
@@ -372,21 +375,6 @@ void mp_resize(int direction)
 	free(old_items);
 }
 
-struct MemBlock* mp_search(void* ptr)
-{
-	size_t hash = mp_hash_ptr(ptr);
-	struct MemBlock* it = phashtable.items[hash];
-	while (it)
-	{
-		if (it->ptr == ptr)
-		{
-			return ptr;
-		}
-		it = it->next;
-	}
-	return NULL;
-}
-
 struct MemBlock* mp_remove(void* ptr)
 {
 	size_t hash = mp_hash_ptr(ptr);
@@ -396,7 +384,7 @@ struct MemBlock* mp_remove(void* ptr)
 	// Search chain for the correct pointer
 	while (it)
 	{
-		if (it->ptr == ptr)
+		if (it->bytes == ptr)
 		{
 			// Bucket gets removed, no more left in chain
 			if (it->next == NULL)
