@@ -7,12 +7,18 @@
 
 #define MP_CHECK_OVERFLOW
 
+#ifndef MP_BUFFER_PAD_LEN
+#define MP_BUFFER_PAD_LEN 5
+#endif
+
+#ifndef MP_BUFFER_PAD_VAL
+#define MP_BUFFER_PAD_VAL '#'
+#endif
+
 // The number of allocated blocks of memory
 size_t alloc_count = 0;
 // The number of bytes allocated
 size_t alloc_size = 0;
-
-#define BUFFER_PAD 3
 
 void msg_default(const char* msg)
 {
@@ -151,7 +157,8 @@ size_t mp_terminate()
 			it = next;
 		}
 	}
-	snprintf(msg, sizeof msg, "A total of %zu memory blocks remain to be freed after program execution", remaining_blocks);
+	snprintf(msg, sizeof msg, "A total of %zu memory blocks remain to be freed after program execution",
+			 remaining_blocks);
 	MSG(msg);
 	free(phashtable.items);
 	phashtable.items = NULL;
@@ -178,7 +185,13 @@ int mp_validate(void* ptr)
 void* mp_malloc(size_t size, const char* file, uint32_t line)
 {
 	// Allocate size for the block info and the buffer requested
-	struct MemBlock* new_block = malloc(sizeof(struct MemBlock) + size - 1 + BUFFER_PAD);
+	struct MemBlock* new_block = malloc(sizeof(struct MemBlock) + size - 1 + MP_BUFFER_PAD_LEN);
+
+// Fill the padding with MP_BUFFER_PAD_VAL
+#ifdef MP_CHECK_OVERFLOW
+	memset(new_block->bytes + size, MP_BUFFER_PAD_VAL, MP_BUFFER_PAD_LEN);
+#endif
+
 	// Allocate request
 	if (new_block == NULL)
 	{
@@ -202,7 +215,14 @@ void* mp_malloc(size_t size, const char* file, uint32_t line)
 void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
 {
 	// Allocate size for the block info and the buffer requested
-	struct MemBlock* new_block = calloc(1, sizeof(struct MemBlock) + num * size - 1 + BUFFER_PAD);
+	struct MemBlock* new_block = calloc(1, sizeof(struct MemBlock) + num * size - 1 + MP_BUFFER_PAD_LEN);
+
+	// Fill the padding with MP_BUFFER_PAD_VAL
+#ifdef MP_CHECK_OVERFLOW
+	memset(new_block->bytes + num * size, MP_BUFFER_PAD_VAL, MP_BUFFER_PAD_LEN);
+#endif
+
+	// Allocate request
 
 	if (new_block == NULL)
 	{
@@ -237,7 +257,20 @@ void mp_free(void* ptr, const char* file, uint32_t line)
 	alloc_count--;
 	alloc_size -= block->size;
 
-	// TODO check overflow
+	// Check integrity of buffer padding to detect overflows/overruns
+	size_t i = 0;
+	char* p = block->bytes + block->size;
+	for (i = 0; i < MP_BUFFER_PAD_LEN; i++, p++)
+	{
+		if (*p != MP_BUFFER_PAD_VAL)
+		{
+			char msg[1024];
+			snprintf(msg, sizeof msg, "Buffer overflow after %zu bytes on pointer %p allocated at %s:%u", block->size,
+					 ptr, block->file, block->line);
+			MSG(msg);
+			break;
+		}
+	}
 	free(block);
 }
 

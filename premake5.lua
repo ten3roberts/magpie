@@ -1,4 +1,4 @@
-tests = { "tests/main.c" }
+tests = { "tests/main.c", "tests/overflow.c" }
 
 function gen_tests()
 	for k, v in pairs(tests) do
