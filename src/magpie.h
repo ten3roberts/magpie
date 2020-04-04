@@ -16,6 +16,9 @@ size_t mp_get_count();
 // Returns the number of bytes allocated
 size_t mp_get_size();
 
+// Prints the locations of all [c,a,re]allocs and how many allocations was performed there
+void mp_print_locations();
+
 // Checks if any blocks remain to be freed
 // Should be run at the end of the program execution
 // Uses the msg
@@ -23,7 +26,7 @@ size_t mp_get_size();
 int mp_terminate();
 
 // Checks for buffer overruns
-int mp_validate();
+int mp_validate(void* ptr);
 
 void* mp_malloc(size_t size, const char* file, uint32_t line);
 void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line);

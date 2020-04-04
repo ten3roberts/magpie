@@ -29,7 +29,7 @@ struct MemBlock
 	size_t size;
 	const char* file;
 	uint32_t line;
-	size_t num;
+	uint32_t count;
 	struct MemBlock* next;
 };
 
@@ -42,7 +42,21 @@ struct PHashTable
 	struct MemBlock** items;
 };
 
+// Describes the location of a malloc
+// Used to track where allocations come from and how many has been allocated from the same place in the code
+struct PAllocLocation
+{
+	const char* file;
+	uint32_t line;
+	// How many allocations have been done at file:line
+	// Does not decrement on free
+	uint32_t count;
+	struct PAllocLocation *prev, *next;
+};
+
 static struct PHashTable phashtable = {0};
+static struct PAllocLocation* locations = NULL;
+static size_t location_count = 0;
 
 // Hash functions from https://gist.github.com/badboy/6267743
 #if SIZE_MAX == 0xffffffff // 32 bit
@@ -77,7 +91,8 @@ size_t mp_hash_ptr(void* ptr)
 #endif
 
 // Inserts block and correctly resizes the hashtable
-void mp_insert(struct MemBlock* block);
+// Counts and increases how many allocations have come from the same file and line
+void mp_insert(struct MemBlock* block, const char* file, uint32_t line);
 
 // Resizes the list either up (1) or down (-1), does nothing if incorrect value
 void mp_resize(int direction);
@@ -99,22 +114,36 @@ size_t mp_get_size()
 	return alloc_size;
 }
 
+void mp_print_locations()
+{
+	struct PAllocLocation* it = locations;
+	while (it)
+	{
+		char msg[1024];
+		snprintf(msg, sizeof(msg), "Allocator at %s:%zu made %u allocations", it->file, it->line, it->count);
+		MSG(msg);
+		it = it->next;
+	}
+}
+
 int mp_terminate()
 {
 	char msg[1024];
 	int remaining_blocks = 0;
 
+	// Free remaining blocks
 	for (size_t i = 0; i < phashtable.size; i++)
 	{
 		struct MemBlock* it = phashtable.items[i];
 		struct MemBlock* next = NULL;
 		while (it)
 		{
+			remaining_blocks++;
 			next = it->next;
 			snprintf(msg, sizeof msg,
 					 "Memory block allocated at %s:%u with a size of %zu bytes has not been freed. Block was "
 					 "allocation num %zu",
-					 it->file, it->line, it->size, it->num);
+					 it->file, it->line, it->size, it->count);
 			MSG(msg);
 
 			free(it->ptr);
@@ -126,6 +155,16 @@ int mp_terminate()
 	phashtable.items = NULL;
 	phashtable.count = 0;
 	phashtable.size = 0;
+
+	// Free the location list
+	struct PAllocLocation* it = locations;
+	struct PAllocLocation* next = it->next;
+	while (it)
+	{
+		free(it);
+		it = next;
+	}
+	locations = NULL;
 	return remaining_blocks;
 }
 
@@ -145,13 +184,12 @@ void* mp_malloc(size_t size, const char* file, uint32_t line)
 	alloc_count++;
 	alloc_size += size;
 	new_block->size = size;
-	new_block->num = alloc_count;
 	new_block->file = file;
 	new_block->line = line;
 	new_block->next = NULL;
 
 	// Insert
-	mp_insert(new_block);
+	mp_insert(new_block, file, line);
 
 	return new_block->ptr;
 }
@@ -175,7 +213,7 @@ void* mp_calloc(size_t num, size_t size, const char* file, uint32_t line)
 	new_block->line = line;
 	new_block->next = NULL;
 	// Insert
-	mp_insert(new_block);
+	mp_insert(new_block, file, line);
 
 	return new_block->ptr;
 }
@@ -201,7 +239,7 @@ void mp_free(void* ptr, const char* file, uint32_t line)
 	free(block);
 }
 
-void mp_insert(struct MemBlock* block)
+void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 {
 	block->next = NULL;
 	// Hash the pointer
@@ -214,23 +252,91 @@ void mp_insert(struct MemBlock* block)
 	{
 		mp_resize(1);
 	}
-	size_t hash = mp_hash_ptr(block->ptr);
-	struct MemBlock* it = phashtable.items[hash];
-
-	if (it == NULL)
 	{
-		phashtable.items[hash] = block;
-		phashtable.count++;
-	}
+		size_t hash = mp_hash_ptr(block->ptr);
+		struct MemBlock* it = phashtable.items[hash];
 
-	// Chain if hash collision
-	else
-	{
-		while (it->next)
+		if (it == NULL)
 		{
-			it = it->next;
+			phashtable.items[hash] = block;
+			phashtable.count++;
 		}
-		it->next = block;
+
+		// Chain if hash collision
+		else
+		{
+			while (it->next)
+			{
+				it = it->next;
+			}
+			it->next = block;
+		}
+	}
+	// Items are being reinserted
+	if (file == NULL)
+	{
+		return;
+	}
+	// Location
+	if (locations == NULL)
+	{
+		locations = malloc(sizeof(struct PAllocLocation));
+		locations->count = 0;
+		locations->file = file;
+		locations->line = line;
+		locations->prev = NULL;
+		locations->next = NULL;
+		block->count = locations->count++;
+		return;
+	}
+	struct PAllocLocation* it = locations;
+	while (it)
+	{
+
+		if (it->file == file && it->line == line)
+		{
+			block->count = it->count++;
+
+			// Make sure it is always sorted by biggest on head
+			while (it->prev && it->prev->count < it->count)
+			{
+				struct PAllocLocation* prev = it->prev;
+				// Head is changing
+				if (prev->prev == NULL)
+				{
+					locations->prev = it;
+					locations->next = it->next;
+					if (it->next)
+						it->next->prev = locations;
+					it->next = locations;
+					locations = it;
+					it->prev = NULL;
+					break;
+				}
+				prev->next = it->next;
+				it->prev = prev->prev;
+				prev->prev->next = it;
+				prev->prev = it;
+
+				it->next = prev;
+			}
+			return;
+		}
+		// At end
+		if (it->next == NULL)
+		{
+			struct PAllocLocation* new_location = malloc(sizeof(struct PAllocLocation));
+			new_location->count = 0;
+			new_location->file = file;
+			new_location->line = line;
+			new_location->prev = it;
+			new_location->next = NULL;
+			it->next = new_location;
+			block->count = new_location->count++;
+
+			return;
+		}
+		it = it->next;
 	}
 }
 
@@ -259,7 +365,7 @@ void mp_resize(int direction)
 		while (it)
 		{
 			next = it->next;
-			mp_insert(it);
+			mp_insert(it, NULL, 0);
 			it = next;
 		}
 	}
