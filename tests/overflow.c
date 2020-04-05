@@ -3,7 +3,9 @@
 #define MP_CHECK_FULL
 #include "magpie.h"
 #include <string.h>
-#include "time.h"
+#include <time.h>
+#include "b.h"
+#include "a.h"
 
 int main(int argc, char** argv)
 {
@@ -13,6 +15,12 @@ int main(int argc, char** argv)
 	for(size_t i = 0; i < size+1; i++)
 	{
 		str[i] = rand() % ('z' - '0') + '0';
+	}
+	B();
+	B();
+	for(int i = 0; i < 100; i++)
+	{
+		A();
 	}
 	str[size+1] = '\0';
 	free(str);

@@ -59,10 +59,17 @@
 // Default function is puts if not set
 // Set to NULL to quiet
 void mp_set_msgcallback(void (*func)(const char* msg));
-// Returns the number of blocks allocated
+
+// Returns the total number of allocations made
+size_t mp_get_total_count();
+
+// Returns the total number of bytes allocated
+size_t mp_get_total_size();
+
+// Returns the current number of blocks allocated
 size_t mp_get_count();
 
-// Returns the number of bytes allocated
+// Returns the current number of bytes allocated
 size_t mp_get_size();
 
 // Prints the locations of all [c,a,re]allocs and how many allocations was performed there
@@ -113,7 +120,11 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line);
 #define MP_BUFFER_PAD_VAL '#'
 #endif
 
-// The number of allocated blocks of memory
+// The total number of allocations for the program
+size_t mp_total_alloc_count = 0;
+// The total size of all allocation for the program
+size_t mp_total_alloc_size = 0;
+// The current number of allocated blocks of memory
 size_t mp_alloc_count = 0;
 // The number of bytes allocated
 size_t mp_alloc_size = 0;
@@ -209,6 +220,16 @@ struct MemBlock* mp_search(void* ptr);
 // Returns the memblock, or NULL if failed
 struct MemBlock* mp_remove(void* ptr);
 
+size_t mp_get_total_count()
+{
+	return mp_total_alloc_count;
+}
+
+size_t mp_get_total_size()
+{
+	return mp_total_alloc_size;
+}
+
 size_t mp_get_count()
 {
 	return mp_alloc_count;
@@ -250,7 +271,8 @@ size_t mp_terminate()
 					 "allocation num %u",
 					 it->file, it->line, it->size, it->count);
 			MSG(msg);
-			mp_free(it->bytes);
+			mp_validate(it->bytes);
+			free(it);
 			it = next;
 		}
 	}
@@ -326,6 +348,8 @@ void* mp_malloc_internal(size_t size, const char* file, uint32_t line)
 		MSG(msg);
 		return NULL;
 	}
+	mp_total_alloc_count++;
+	mp_total_alloc_size += size;
 	mp_alloc_count++;
 	mp_alloc_size += size;
 	new_block->size = size;
@@ -357,6 +381,8 @@ void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t lin
 		MSG(msg);
 		return NULL;
 	}
+	mp_total_alloc_count++;
+	mp_total_alloc_size += num * size;
 	mp_alloc_count++;
 	mp_alloc_size += num * size;
 	new_block->size = num * size;
@@ -509,7 +535,6 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 
 void mp_resize(int direction)
 {
-	MSG("Resizing");
 	size_t old_size = mp_hashtable.size;
 	if (direction == 1)
 		mp_hashtable.size *= 2;

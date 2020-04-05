@@ -3,6 +3,8 @@
 // Allocates on the same line as B
 char* A()
 {
-	char* s = calloc(100, 1);
-	return NULL;
+	static int i = 0;
+	printf("i : %d\n", i++);
+	char* s = malloc(100);
+	return s;
 }

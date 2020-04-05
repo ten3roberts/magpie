@@ -5,7 +5,6 @@
 #include "a.h"
 #include <string.h>
 
-
 int main(int argc, char** argv)
 {
 	size_t size = 100000;
@@ -24,11 +23,8 @@ int main(int argc, char** argv)
 	size_t skipped = 0;
 	for (size_t i = 0; i < size; i++)
 	{
-		if (rand() % 10000 == 0)
-		{
-			skipped++;
+		if (i % 50 == 0)
 			continue;
-		}
 		free(strings[i]);
 	}
 	puts("Done");
