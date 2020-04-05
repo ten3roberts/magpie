@@ -355,7 +355,7 @@ size_t mp_terminate()
 					 it->file, it->line, it->size, it->count);
 			MSG(msg);
 			mp_validate(it->bytes);
-			free(it);
+			//free(it);
 			it = next;
 		}
 	}
@@ -477,7 +477,46 @@ void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t lin
 
 	return new_block->bytes;
 }
-void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t line);
+void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t line)
+{
+	// Allocate if ptr is NULL
+	if (ptr == NULL)
+		return mp_malloc_internal(size, file, line);
+
+	// Free if size is 0
+	if (ptr && size == 0)
+	{
+		mp_free_internal(ptr, file, line);
+		return NULL;
+	}
+	struct MemBlock* block = mp_remove(ptr);
+	if (block == NULL)
+	{
+		char msg[MP_MSG_LEN];
+		snprintf(msg, sizeof msg, "%s:%u Reallocating invalid or already freed pointer with adress %p", file, line, ptr);
+		MSG(msg);
+		return NULL;
+	}
+	mp_total_alloc_size -= block->size;
+	mp_alloc_size -= block->size;
+	struct MemBlock* new_block = realloc(block, sizeof(struct MemBlock) + size - 1 + MP_BUFFER_PAD_LEN);
+	if(new_block == NULL)
+	{
+
+		char msg[MP_MSG_LEN];
+		snprintf(msg, sizeof msg, "%s:%u Failed to reallocate memory from %zu to %zu bytes", file, line, block->size, size);
+		MSG(msg);
+		return NULL;
+	}
+	mp_insert(new_block, file, line);
+	mp_total_alloc_size += size;
+	new_block->size = size;
+	mp_alloc_size += size;
+#ifdef MP_CHECK_OVERFLOW
+		memset(new_block->bytes + size, MP_BUFFER_PAD_VAL, MP_BUFFER_PAD_LEN);
+#endif
+return new_block->bytes;
+}
 
 void mp_free_internal(void* ptr, const char* file, uint32_t line)
 {
