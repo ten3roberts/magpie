@@ -30,7 +30,7 @@ Configuring of the library is done at build time by defining zero or more of bel
 
 If nothing is defined magpie will keep track of allocations done with mp_[m,c,re]alloc and mp_free and detect memory leaks
 
-define MP_CHECK_FULL to use the full library
+Define MP_CHECK_FULL to use the full library
 
 * MP_DISABLE to turn off storing and tracking of memory blocks and only keeps track of number of allocations by incremention and decremention
 -> This disabled almost the whole library including checks for leaks, pointer validity, overflow and almost all else
@@ -46,8 +46,15 @@ define MP_CHECK_FULL to use the full library
 
 * MP_CHECK_FULL to define MP_REPLACE_STD, MP_CHECK_OVERFLOW, MP_FILL_ON_FREE
 
+## Output
+By default magpie will print a message to the console using puts
+
+To change the function, use mp_set_msgcallback, pass NULL to disable message callbacks
+
 ## Leak checking
 Run mp_terminate at the end of the program, leak checking is enabled by default if not MP_DISABLE is defined
+
+Returns the number of leaked blocks
 
 This will print out the information about the remaining blocks such as
 
