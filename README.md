@@ -79,7 +79,7 @@ Buffer overflow can also be checked explcitely with mp_validate without freeing 
 
 int main(int argc, char** argv)
 {
-	srand(time(NULL));    // Seed random generator
+	srand(time(NULL));    	// Seed random generator
 	size_t size = 32;
 	char* str = malloc(size);
 	// Fill string with random characters
@@ -88,12 +88,12 @@ int main(int argc, char** argv)
 		str[i] = rand() % ('z' - 'A') + 'A';
 	}
 
-	str[size] = '\0';     // Null terminate string (buffer overflow)
+	str[size] = '\0';     	// Null terminate string (buffer overflow)
 	puts(str);
-	free(str);            // Checks for overflow, memory and tracking is freed
+	free(str);            	// Checks for overflow, memory and tracking is freed
 	puts("Done");
-	mp_print_locations(); // Print where allocations happened and how many happened on each line
-	mp_terminate();		    // Check for leaked blocks
+	mp_print_locations(); 	// Print where allocations happened and how many happened on each line
+	mp_terminate();		// Check for leaked blocks
 	return 0;
 }
 ```
