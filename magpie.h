@@ -19,10 +19,11 @@
 // ==============================================================================
 
 // CONFIGURATION
-// MP_DISABLE to turn off storing and tracking of memory blocks and only keeps track of number of allocations by
-// incremention and decremention
+// MP_DISABLE to turn off storing and tracking of memory blocks and only keeps track of number of allocations by incremention and decremention
 // -> This disabled almost the whole library including checks for leaks, pointer validity, overflow and almost all else
 // -> Use in RELEASE builds
+// -> Only available features will be message on failed allocation (malloc returns NULL), and allocation count
+// -> Allocation size is not tracked since size of pointer cannot be known without tracking
 // MP_REPLACE_STD to replace the standard malloc, calloc, realloc, and free
 // MP_CHECK_OVERFLOW to be able to validate and detect overflows automatically on free or explicitely
 // MP_BUFFER_PAD_LEN (default 5) sets the size of the padding in bytes for detecting overflows
@@ -33,6 +34,9 @@
 // MP_FILL_ON_FREE to fill buffer on free with MP_BUFFER_PAD_VAL, this is to avoid reading a pointers data after it has been freed and not overwritten by others
 
 // MP_CHECK_FULL to define MP_REPLACE_STD, MP_CHECK_OVERFLOW, MP_FILL_ON_FREE
+
+// Use mp_set_msgcallback(void (*func)(const char* msg)) to set function that magpie prints to, defaults to puts
+// NULL is a valid callback and will supress all messages
 
 // https://github.com/ten3roberts/magpie
 
@@ -111,7 +115,9 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line);
 #include <string.h>
 #include <limits.h>
 #include <stdlib.h>
-
+#ifndef MP_MSG_LEN
+#define MP_MSG_LEN 512
+#endif
 #ifndef MP_BUFFER_PAD_LEN
 #define MP_BUFFER_PAD_LEN 5
 #endif
@@ -121,24 +127,30 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line);
 #endif
 
 // The total number of allocations for the program
-size_t mp_total_alloc_count = 0;
+static size_t mp_total_alloc_count = 0;
 // The total size of all allocation for the program
-size_t mp_total_alloc_size = 0;
+static size_t mp_total_alloc_size = 0;
 // The current number of allocated blocks of memory
-size_t mp_alloc_count = 0;
+static size_t mp_alloc_count = 0;
 // The number of bytes allocated
-size_t mp_alloc_size = 0;
+static size_t mp_alloc_size = 0;
 
 void msg_default(const char* msg)
 {
 	(void)puts(msg);
 }
-void (*msg_func)(const char* msg) = msg_default;
+static void (*mp_msg_func)(const char* msg) = msg_default;
 
-#define MSG(m)    \
-	if (msg_func) \
-		msg_func(m);
+void mp_set_msgcallback(void (*func)(const char* msg))
+{
+	mp_msg_func = func;
+}
 
+#define MSG(m)       \
+	if (mp_msg_func) \
+		mp_msg_func(m);
+
+#ifndef MP_DISABLE
 // A memory block stored based on line of initial allocation in a binary tree
 struct MemBlock
 {
@@ -202,7 +214,6 @@ size_t mp_hash_ptr(void* ptr)
 	// Fit to table
 	// Since size is a power of two, it is faster than modulo
 	return key & (mp_hashtable.size - 1);
-	;
 }
 #endif
 
@@ -219,6 +230,7 @@ struct MemBlock* mp_search(void* ptr);
 // Searches and removes a memblock storing the ptr from the hashmap
 // Returns the memblock, or NULL if failed
 struct MemBlock* mp_remove(void* ptr);
+#endif
 
 size_t mp_get_total_count()
 {
@@ -240,12 +252,83 @@ size_t mp_get_size()
 	return mp_alloc_size;
 }
 
+// Remove print locations
+// Terminate function does nothing
+// Remove validation function
+// Make allocation functions simple wrappers that increment count
+// Do not build hash table functions if MP_DISABLE is defined
+#ifdef MP_DISABLE
+void mp_print_locations()
+{
+	MSG("Failed to fetch locations since magpie is disabled in build");
+}
+
+size_t mp_terminate()
+{
+	MSG("Failed to fetch remaining blocks since magpie is disabled in build");
+	return 0;
+}
+
+int mp_validate_internal(void* ptr, const char* file, uint32_t line)
+{
+	MSG("Failed to validate pointer since magpie is disabled in build");
+	return MP_VALIDATE_OK;
+}
+
+void* mp_malloc_internal(size_t size, const char* file, uint32_t line)
+{
+	void* ptr = malloc(size);
+	if (ptr == NULL)
+	{
+		char msg[MP_MSG_LEN];
+		snprintf(msg, sizeof msg, "%s:%d Failed to allocate memory for %zu bytes", file, line, size);
+		MSG(msg);
+		return NULL;
+	}
+	mp_total_alloc_count++;
+	mp_total_alloc_size += size;
+	mp_alloc_count++;
+	return ptr;
+}
+
+void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t line)
+{
+	void* ptr = calloc(num, size);
+	if (ptr == NULL)
+	{
+		char msg[MP_MSG_LEN];
+		snprintf(msg, sizeof msg, "%s:%d Failed to allocate memory for %zu bytes", file, line, size);
+		MSG(msg);
+		return NULL;
+	}
+	mp_total_alloc_count++;
+	mp_total_alloc_size += num * size;
+	mp_alloc_count++;
+	return ptr;
+}
+
+void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t line);
+
+void mp_free_internal(void* ptr, const char* file, uint32_t line)
+{
+	if (ptr == NULL)
+	{
+		char msg[MP_MSG_LEN];
+		snprintf(msg, sizeof msg, "%s:%u Freeing NULL pointer", file, line);
+		MSG(msg);
+		return;
+	}
+	mp_alloc_count--;
+	free(ptr);
+}
+
+#else
 void mp_print_locations()
 {
 	struct MPAllocLocation* it = mp_locations;
 	while (it)
 	{
-		char msg[1024];
+		char msg[MP_MSG_LEN];
 		snprintf(msg, sizeof msg, "Allocator at %s:%u made %u allocations", it->file, it->line, it->count);
 		MSG(msg);
 		it = it->next;
@@ -254,7 +337,7 @@ void mp_print_locations()
 
 size_t mp_terminate()
 {
-	char msg[1024];
+	char msg[MP_MSG_LEN];
 	size_t remaining_blocks = 0;
 
 	// Free remaining blocks
@@ -305,7 +388,7 @@ int mp_validate_internal(void* ptr, const char* file, uint32_t line)
 	struct MemBlock* block = mp_search(ptr);
 	if (block == NULL)
 	{
-		char msg[1024];
+		char msg[MP_MSG_LEN];
 		snprintf(msg, sizeof msg, "%s:%u Validation of invalid or already freed pointer with adress %p", file, line,
 				 ptr);
 		MSG(msg);
@@ -319,7 +402,7 @@ int mp_validate_internal(void* ptr, const char* file, uint32_t line)
 	{
 		if (*p != MP_BUFFER_PAD_VAL)
 		{
-			char msg[1024];
+			char msg[MP_MSG_LEN];
 			snprintf(msg, sizeof msg, "Buffer overflow after %zu bytes on pointer %p allocated at %s:%u", block->size,
 					 ptr, block->file, block->line);
 			MSG(msg);
@@ -343,7 +426,7 @@ void* mp_malloc_internal(size_t size, const char* file, uint32_t line)
 	// Allocate request
 	if (new_block == NULL)
 	{
-		char msg[1024];
+		char msg[MP_MSG_LEN];
 		snprintf(msg, sizeof msg, "%s:%d Failed to allocate memory for %zu bytes", file, line, size);
 		MSG(msg);
 		return NULL;
@@ -376,7 +459,7 @@ void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t lin
 
 	if (new_block == NULL)
 	{
-		char msg[1024];
+		char msg[MP_MSG_LEN];
 		snprintf(msg, sizeof msg, "%s:%u Failed to allocate memory for %zu bytes", file, line, size * num);
 		MSG(msg);
 		return NULL;
@@ -401,7 +484,7 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 	struct MemBlock* block = mp_remove(ptr);
 	if (block == NULL)
 	{
-		char msg[1024];
+		char msg[MP_MSG_LEN];
 		snprintf(msg, sizeof msg, "%s:%u Freeing invalid or already freed pointer with adress %p", file, line, ptr);
 		MSG(msg);
 		return;
@@ -417,7 +500,7 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 	{
 		if (*p != MP_BUFFER_PAD_VAL)
 		{
-			char msg[1024];
+			char msg[MP_MSG_LEN];
 			snprintf(msg, sizeof msg, "Buffer overflow after %zu bytes on pointer %p allocated at %s:%u", block->size,
 					 ptr, block->file, block->line);
 			MSG(msg);
@@ -617,6 +700,7 @@ struct MemBlock* mp_remove(void* ptr)
 	}
 	return NULL;
 }
+#endif
 #endif
 
 #ifdef MP_REPLACE_STD

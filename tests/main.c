@@ -1,6 +1,6 @@
 #include <stdio.h>
 #define MP_IMPLEMENTATION
-#define MP_CHECK_FULL
+#define MP_DISABLE
 #include "magpie.h"
 #include "a.h"
 #include <string.h>
