@@ -114,9 +114,9 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line);
 #endif
 
 // The number of allocated blocks of memory
-size_t alloc_count = 0;
+size_t mp_alloc_count = 0;
 // The number of bytes allocated
-size_t alloc_size = 0;
+size_t mp_alloc_size = 0;
 
 void msg_default(const char* msg)
 {
@@ -139,7 +139,7 @@ struct MemBlock
 	char bytes[1];
 };
 
-struct PHashTable
+struct MPHashTable
 {
 	// Describes the allocated amount of buckets in the hash table
 	size_t size;
@@ -150,18 +150,18 @@ struct PHashTable
 
 // Describes the location of a malloc
 // Used to track where allocations come from and how many has been allocated from the same place in the code
-struct PAllocLocation
+struct MPAllocLocation
 {
 	const char* file;
 	uint32_t line;
 	// How many allocations have been done at file:line
 	// Does not decrement on free
 	uint32_t count;
-	struct PAllocLocation *prev, *next;
+	struct MPAllocLocation *prev, *next;
 };
 
-static struct PHashTable phashtable = {0};
-static struct PAllocLocation* locations = NULL;
+static struct MPHashTable mp_hashtable = {0};
+static struct MPAllocLocation* mp_locations = NULL;
 
 // Hash functions from https://gist.github.com/badboy/6267743
 #if SIZE_MAX == 0xffffffff // 32 bit
@@ -190,7 +190,7 @@ size_t mp_hash_ptr(void* ptr)
 
 	// Fit to table
 	// Since size is a power of two, it is faster than modulo
-	return key & (phashtable.size - 1);
+	return key & (mp_hashtable.size - 1);
 	;
 }
 #endif
@@ -211,17 +211,17 @@ struct MemBlock* mp_remove(void* ptr);
 
 size_t mp_get_count()
 {
-	return alloc_count;
+	return mp_alloc_count;
 }
 
 size_t mp_get_size()
 {
-	return alloc_size;
+	return mp_alloc_size;
 }
 
 void mp_print_locations()
 {
-	struct PAllocLocation* it = locations;
+	struct MPAllocLocation* it = mp_locations;
 	while (it)
 	{
 		char msg[1024];
@@ -237,9 +237,9 @@ size_t mp_terminate()
 	size_t remaining_blocks = 0;
 
 	// Free remaining blocks
-	for (size_t i = 0; i < phashtable.size; i++)
+	for (size_t i = 0; i < mp_hashtable.size; i++)
 	{
-		struct MemBlock* it = phashtable.items[i];
+		struct MemBlock* it = mp_hashtable.items[i];
 		struct MemBlock* next = NULL;
 		while (it)
 		{
@@ -257,24 +257,24 @@ size_t mp_terminate()
 	snprintf(msg, sizeof msg, "A total of %zu memory blocks remain to be freed after program execution",
 			 remaining_blocks);
 	MSG(msg);
-	if (phashtable.items)
+	if (mp_hashtable.items)
 	{
-		free(phashtable.items);
-		phashtable.items = NULL;
-		phashtable.count = 0;
-		phashtable.size = 0;
+		free(mp_hashtable.items);
+		mp_hashtable.items = NULL;
+		mp_hashtable.count = 0;
+		mp_hashtable.size = 0;
 	}
 
 	// Free the location list
-	struct PAllocLocation* it = locations;
-	struct PAllocLocation* next = NULL;
+	struct MPAllocLocation* it = mp_locations;
+	struct MPAllocLocation* next = NULL;
 	while (it)
 	{
 		next = it->next;
 		free(it);
 		it = next;
 	}
-	locations = NULL;
+	mp_locations = NULL;
 	return remaining_blocks;
 }
 
@@ -326,8 +326,8 @@ void* mp_malloc_internal(size_t size, const char* file, uint32_t line)
 		MSG(msg);
 		return NULL;
 	}
-	alloc_count++;
-	alloc_size += size;
+	mp_alloc_count++;
+	mp_alloc_size += size;
 	new_block->size = size;
 	new_block->file = file;
 	new_block->line = line;
@@ -357,8 +357,8 @@ void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t lin
 		MSG(msg);
 		return NULL;
 	}
-	alloc_count++;
-	alloc_size += num * size;
+	mp_alloc_count++;
+	mp_alloc_size += num * size;
 	new_block->size = num * size;
 	new_block->file = file;
 	new_block->line = line;
@@ -380,8 +380,8 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 		MSG(msg);
 		return;
 	}
-	alloc_count--;
-	alloc_size -= block->size;
+	mp_alloc_count--;
+	mp_alloc_size -= block->size;
 
 #ifdef MP_CHECK_OVERFLOW
 	// Check integrity of buffer padding to detect overflows/overruns
@@ -409,24 +409,24 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 {
 	block->next = NULL;
 	// Hash the pointer
-	if (phashtable.size == 0)
+	if (mp_hashtable.size == 0)
 	{
-		phashtable.size = 16;
-		phashtable.items = calloc(phashtable.size, sizeof(*phashtable.items));
+		mp_hashtable.size = 16;
+		mp_hashtable.items = calloc(mp_hashtable.size, sizeof(*mp_hashtable.items));
 	}
-	if (phashtable.count + 1 >= phashtable.size * 0.7)
+	if (mp_hashtable.count + 1 >= mp_hashtable.size * 0.7)
 	{
 		mp_resize(1);
 	}
 	{
 		// Takes the hash of the bytes pointer of the block
 		size_t hash = mp_hash_ptr(block->bytes);
-		struct MemBlock* it = phashtable.items[hash];
+		struct MemBlock* it = mp_hashtable.items[hash];
 
 		if (it == NULL)
 		{
-			phashtable.items[hash] = block;
-			phashtable.count++;
+			mp_hashtable.items[hash] = block;
+			mp_hashtable.count++;
 		}
 
 		// Chain if hash collision
@@ -445,18 +445,18 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 		return;
 	}
 	// Location
-	if (locations == NULL)
+	if (mp_locations == NULL)
 	{
-		locations = malloc(sizeof(struct PAllocLocation));
-		locations->count = 0;
-		locations->file = file;
-		locations->line = line;
-		locations->prev = NULL;
-		locations->next = NULL;
-		block->count = locations->count++;
+		mp_locations = malloc(sizeof(struct MPAllocLocation));
+		mp_locations->count = 0;
+		mp_locations->file = file;
+		mp_locations->line = line;
+		mp_locations->prev = NULL;
+		mp_locations->next = NULL;
+		block->count = mp_locations->count++;
 		return;
 	}
-	struct PAllocLocation* it = locations;
+	struct MPAllocLocation* it = mp_locations;
 	while (it)
 	{
 
@@ -467,16 +467,16 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 			// Make sure it is always sorted by biggest on head
 			while (it->prev && it->prev->count < it->count)
 			{
-				struct PAllocLocation* prev = it->prev;
+				struct MPAllocLocation* prev = it->prev;
 				// Head is changing
 				if (prev->prev == NULL)
 				{
-					locations->prev = it;
-					locations->next = it->next;
+					mp_locations->prev = it;
+					mp_locations->next = it->next;
 					if (it->next)
-						it->next->prev = locations;
-					it->next = locations;
-					locations = it;
+						it->next->prev = mp_locations;
+					it->next = mp_locations;
+					mp_locations = it;
 					it->prev = NULL;
 					break;
 				}
@@ -492,7 +492,7 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 		// At end
 		if (it->next == NULL)
 		{
-			struct PAllocLocation* new_location = malloc(sizeof(struct PAllocLocation));
+			struct MPAllocLocation* new_location = malloc(sizeof(struct MPAllocLocation));
 			new_location->count = 0;
 			new_location->file = file;
 			new_location->line = line;
@@ -510,19 +510,19 @@ void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
 void mp_resize(int direction)
 {
 	MSG("Resizing");
-	size_t old_size = phashtable.size;
+	size_t old_size = mp_hashtable.size;
 	if (direction == 1)
-		phashtable.size *= 2;
+		mp_hashtable.size *= 2;
 	else if (direction == -1)
-		phashtable.size /= 2;
+		mp_hashtable.size /= 2;
 	else
 		return;
 
-	struct MemBlock** old_items = phashtable.items;
-	phashtable.items = calloc(phashtable.size, sizeof(struct MemBlock*));
+	struct MemBlock** old_items = mp_hashtable.items;
+	mp_hashtable.items = calloc(mp_hashtable.size, sizeof(struct MemBlock*));
 
 	// Count will be reincreased when reinserting items
-	phashtable.count = 0;
+	mp_hashtable.count = 0;
 	// Rehash and insert
 	for (size_t i = 0; i < old_size; i++)
 	{
@@ -542,7 +542,7 @@ void mp_resize(int direction)
 struct MemBlock* mp_search(void* ptr)
 {
 	size_t hash = mp_hash_ptr(ptr);
-	struct MemBlock* it = phashtable.items[hash];
+	struct MemBlock* it = mp_hashtable.items[hash];
 
 	// Search chain for the correct pointer
 	while (it)
@@ -559,7 +559,7 @@ struct MemBlock* mp_search(void* ptr)
 struct MemBlock* mp_remove(void* ptr)
 {
 	size_t hash = mp_hash_ptr(ptr);
-	struct MemBlock* it = phashtable.items[hash];
+	struct MemBlock* it = mp_hashtable.items[hash];
 	struct MemBlock* prev = NULL;
 
 	// Search chain for the correct pointer
@@ -569,18 +569,18 @@ struct MemBlock* mp_remove(void* ptr)
 		{
 			// Bucket gets removed, no more left in chain
 			if (it->next == NULL)
-				phashtable.count--;
+				mp_hashtable.count--;
 			if (prev) // Has a parent remove and reconnect chain
 			{
 				prev->next = it->next;
 			}
 			else // First one one chain, change head
 			{
-				phashtable.items[hash] = it->next;
+				mp_hashtable.items[hash] = it->next;
 			}
 
 			// Check for resize down
-			if (phashtable.count - 1 <= phashtable.size * 0.4)
+			if (mp_hashtable.count - 1 <= mp_hashtable.size * 0.4)
 			{
 				mp_resize(-1);
 			}
