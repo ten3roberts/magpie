@@ -1,8 +1,10 @@
 #include <stdio.h>
-#include "src/magpie.h"
-#include <string.h>
+#define MP_IMPLEMENTATION
+#define MP_CHECK_FULL
+#include "magpie.h"
 #include "a.h"
-#include "b.h"
+#include <string.h>
+
 
 int main(int argc, char** argv)
 {

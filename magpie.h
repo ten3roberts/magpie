@@ -1,12 +1,109 @@
-#undef MP_REPLACE_STD
-#include "magpie.h"
+// Magpie is a small and low overhead library for keeping track of allocations and detecting memory leaks
+// Stores all allocations from the program in a hashtable
+// Stores where allocations came from and how many allocations have been done in the same place
+// Checks for buffer overflows and double free
+// Checks for leaked memory blocks at the end of the program with mp_terminate
+// Leak checking is done by calling mp_terminate
+// This will print out the information about the remaining blocks
+// -> Where they were allocated as file:line, ctrl+click to follow in vscode
+// -> How many bytes where allocated
+// -> Which number off allocations from the same place it was, if allocating in a loop, this will show you which iteration of the loop did not get free
+// mp_terminate will also free all remaining blocks and all internal resources, can safely be called if no allocations have happened
+// =============================================================================
+
+// To build the library do
+// #define MP_IMPLEMENTATION in ONE C file to create the function implementations before including the header
+// To configure the library, add the defines under =CONFIGURATION= above including the header in the same C file you
+// defined MP_IMPLEMENTATION
+
+// ==============================================================================
+
+// CONFIGURATION
+// MP_DISABLE to turn off storing and tracking of memory blocks and only keeps track of number of allocations by
+// incremention and decremention
+// -> This disabled almost the whole library including checks for leaks, pointer validity, overflow and almost all else
+// -> Use in RELEASE builds
+// MP_REPLACE_STD to replace the standard malloc, calloc, realloc, and free
+// MP_CHECK_OVERFLOW to be able to validate and detect overflows automatically on free or explicitely
+// MP_BUFFER_PAD_LEN (default 5) sets the size of the padding in bytes for detecting overflows
+// -> Higher values require a bit more memory and checking but catches sparse overflows better
+// MP_BUFFER_PAD_VAL (default '#') sets the character or value to fill the padding with if MP_
+// -> This value should be a character not often used to avoid false negatives since overflow can't be detected if the same character is written
+// -> DO NOT use '\0' or 0 as it is the most common character to overflow
+// MP_FILL_ON_FREE to fill buffer on free with MP_BUFFER_PAD_VAL, this is to avoid reading a pointers data after it has been freed and not overwritten by others
+
+// MP_CHECK_FULL to define MP_REPLACE_STD, MP_CHECK_OVERFLOW, MP_FILL_ON_FREE
+
+// https://github.com/ten3roberts/magpie
+
+#ifndef MAGPIE_H
+#define MAGPIE_H
+
+#ifdef _STDLIB_H
+#error "stdlib.h should not be included before magpie.h"
+#endif
+#include <stdint.h>
+#include <stdlib.h>
+
+#ifdef MP_CHECK_FULL
+#define MP_REPLACE_STD
+#define MP_CHECK_OVERFLOW
+#define MP_FILL_ON_FREE
+#endif
+
+#define MP_VALIDATE_OK		 0
+#define MP_VALIDATE_INVALID	 -1
+#define MP_VALIDATE_OVERFLOW -2
+
+// Sets the message callback function
+// Default function is puts if not set
+// Set to NULL to quiet
+void mp_set_msgcallback(void (*func)(const char* msg));
+// Returns the number of blocks allocated
+size_t mp_get_count();
+
+// Returns the number of bytes allocated
+size_t mp_get_size();
+
+// Prints the locations of all [c,a,re]allocs and how many allocations was performed there
+void mp_print_locations();
+
+// Checks if any blocks remain to be freed
+// Should only be run at the end of the program execution
+// Uses the msg
+// Returns how many blocks of memory that weren't freed
+// Frees any remaining blocks
+// Releases all internal resources
+size_t mp_terminate();
+
+// Checks for buffer overruns and pointer life
+// Returns MP_VALIDATE_[OK,INVALID,OVERFLOW]
+int mp_validate_internal(void* ptr, const char* file, uint32_t line);
+
+void* mp_malloc_internal(size_t size, const char* file, uint32_t line);
+void* mp_calloc_internal(size_t num, size_t size, const char* file, uint32_t line);
+void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t line);
+void mp_free_internal(void* ptr, const char* file, uint32_t line);
+
+#define mp_validate(ptr)	  mp_validate_internal(ptr, __FILE__, __LINE__)
+#define mp_malloc(size)		  mp_malloc_internal(size, __FILE__, __LINE__)
+#define mp_calloc(num, size)  mp_calloc_internal(num, size, __FILE__, __LINE__)
+#define mp_realloc(ptr, size) mp_realloc_internal(ptr, size, __FILE__, __LINE__)
+#define mp_free(ptr)		  mp_free_internal(ptr, __FILE__, __LINE__)
+
+// End of header
+// Implementation
+#ifdef MP_IMPLEMENTATION
+#ifdef MP_REPLACE_STD
+#undef malloc
+#undef calloc
+#undef realloc
+#undef free
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
 #include <stdlib.h>
-
-#define MP_CHECK_OVERFLOW
-#define MP_FILL_ON_FREE
 
 #ifndef MP_BUFFER_PAD_LEN
 #define MP_BUFFER_PAD_LEN 5
@@ -160,10 +257,13 @@ size_t mp_terminate()
 	snprintf(msg, sizeof msg, "A total of %zu memory blocks remain to be freed after program execution",
 			 remaining_blocks);
 	MSG(msg);
-	free(phashtable.items);
-	phashtable.items = NULL;
-	phashtable.count = 0;
-	phashtable.size = 0;
+	if (phashtable.items)
+	{
+		free(phashtable.items);
+		phashtable.items = NULL;
+		phashtable.count = 0;
+		phashtable.size = 0;
+	}
 
 	// Free the location list
 	struct PAllocLocation* it = locations;
@@ -189,6 +289,7 @@ int mp_validate_internal(void* ptr, const char* file, uint32_t line)
 		MSG(msg);
 		return MP_VALIDATE_INVALID;
 	}
+#ifdef MP_CHECK_OVERFLOW
 	// Check integrity of buffer padding to detect overflows/overruns
 	size_t i = 0;
 	char* p = block->bytes + block->size;
@@ -203,6 +304,7 @@ int mp_validate_internal(void* ptr, const char* file, uint32_t line)
 			return MP_VALIDATE_OVERFLOW;
 		}
 	}
+#endif
 	return MP_VALIDATE_OK;
 }
 
@@ -281,6 +383,7 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 	alloc_count--;
 	alloc_size -= block->size;
 
+#ifdef MP_CHECK_OVERFLOW
 	// Check integrity of buffer padding to detect overflows/overruns
 	size_t i = 0;
 	char* p = block->bytes + block->size;
@@ -295,11 +398,11 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 			break;
 		}
 	}
-
+#endif
 #ifdef MP_FILL_ON_FREE
 	memset(block->bytes, MP_BUFFER_PAD_VAL, block->size);
 #endif
-		free(block);
+	free(block);
 }
 
 void mp_insert(struct MemBlock* block, const char* file, uint32_t line)
@@ -489,3 +592,13 @@ struct MemBlock* mp_remove(void* ptr)
 	}
 	return NULL;
 }
+#endif
+
+#ifdef MP_REPLACE_STD
+#define malloc(size)	   mp_malloc_internal(size, __FILE__, __LINE__);
+#define calloc(num, size)  mp_calloc_internal(num, size, __FILE__, __LINE__);
+#define realloc(ptr, size) mp_realloc_internal(ptr, size, __FILE__, __LINE__);
+#define free(ptr)		   mp_free_internal(ptr, __FILE__, __LINE__);
+#endif
+
+#endif
