@@ -112,3 +112,10 @@ Done
 Allocator at tests/overflow.c:12 made 1 allocations
 A total of 0 memory blocks remain to be freed after program execution
 ```
+
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
+
+The license is also included in magpie.h so the LICENSE file does not need to be copied as well as the source header
