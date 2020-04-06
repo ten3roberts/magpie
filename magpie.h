@@ -356,7 +356,21 @@ size_t mp_terminate()
 					 "allocation num %u",
 					 it->file, it->line, it->size, it->count);
 			MSG(msg);
-			mp_validate(it->bytes);
+			// Validate directly
+			// Check integrity of buffer padding to detect overflows/overruns
+			size_t i = 0;
+			char* p = it->bytes + it->size;
+			for (i = 0; i < MP_BUFFER_PAD_LEN; i++, p++)
+			{
+				if (*p != MP_BUFFER_PAD_VAL)
+				{
+					char msg[MP_MSG_LEN];
+					snprintf(msg, sizeof msg, "Buffer overflow after %zu bytes on pointer %p allocated at %s:%u",
+							 it->size, it->bytes, it->file, it->line);
+					MSG(msg);
+					return MP_VALIDATE_OVERFLOW;
+				}
+			}
 			//free(it);
 			it = next;
 		}
@@ -495,18 +509,20 @@ void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t lin
 	if (block == NULL)
 	{
 		char msg[MP_MSG_LEN];
-		snprintf(msg, sizeof msg, "%s:%u Reallocating invalid or already freed pointer with adress %p", file, line, ptr);
+		snprintf(msg, sizeof msg, "%s:%u Reallocating invalid or already freed pointer with adress %p", file, line,
+				 ptr);
 		MSG(msg);
 		return NULL;
 	}
 	mp_total_alloc_size -= block->size;
 	mp_alloc_size -= block->size;
 	struct MemBlock* new_block = realloc(block, sizeof(struct MemBlock) + size - 1 + MP_BUFFER_PAD_LEN);
-	if(new_block == NULL)
+	if (new_block == NULL)
 	{
 
 		char msg[MP_MSG_LEN];
-		snprintf(msg, sizeof msg, "%s:%u Failed to reallocate memory from %zu to %zu bytes", file, line, block->size, size);
+		snprintf(msg, sizeof msg, "%s:%u Failed to reallocate memory from %zu to %zu bytes", file, line, block->size,
+				 size);
 		MSG(msg);
 		return NULL;
 	}
@@ -515,9 +531,9 @@ void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t lin
 	new_block->size = size;
 	mp_alloc_size += size;
 #ifdef MP_CHECK_OVERFLOW
-		memset(new_block->bytes + size, MP_BUFFER_PAD_VAL, MP_BUFFER_PAD_LEN);
+	memset(new_block->bytes + size, MP_BUFFER_PAD_VAL, MP_BUFFER_PAD_LEN);
 #endif
-return new_block->bytes;
+	return new_block->bytes;
 }
 
 void mp_free_internal(void* ptr, const char* file, uint32_t line)

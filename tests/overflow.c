@@ -12,8 +12,7 @@ int main(int argc, char** argv)
 	srand(time(NULL));
 	size_t size = 100;
 	char* str = malloc(size);
-	str = realloc(str, size+10);
-	for(size_t i = 0; i < size; i++)
+	for(size_t i = 0; i <= size; i++)
 	{
 		str[i] = rand() % ('z' - '0') + '0';
 	}
@@ -22,7 +21,6 @@ int main(int argc, char** argv)
 		free(A());
 	}
 	puts(str);
-	free(str);
 	puts("Done");
 	mp_print_locations();
 	(void)mp_terminate();
