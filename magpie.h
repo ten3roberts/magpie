@@ -52,9 +52,15 @@
 #include <stdlib.h>
 
 #ifdef MP_CHECK_FULL
+#ifndef MP_REPLACE_STD
 #define MP_REPLACE_STD
+#endif
+#ifndef MP_CHECK_OVERFLOW
 #define MP_CHECK_OVERFLOW
+#endif
+#ifndef MP_FILL_ON_FREE
 #define MP_FILL_ON_FREE
+#endif
 #endif
 
 #define MP_VALIDATE_OK		 0
