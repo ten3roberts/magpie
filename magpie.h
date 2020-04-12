@@ -33,6 +33,7 @@
 // -> DO NOT use '\0' or 0 as it is the most common character to overflow
 // MP_FILL_ON_FREE to fill buffer on free with MP_BUFFER_PAD_VAL, this is to avoid reading a pointers data after it has been freed and not overwritten by others
 // MP_MESSAGE (default puts) define your own message callback
+// MP_WARN_NULL to warn when freeing NULL pointer. This is allowed in the specifications of free, but may be a bug of a value that never got initialized
 
 // MP_CHECK_FULL to define MP_REPLACE_STD, MP_CHECK_OVERFLOW, MP_FILL_ON_FREE
 
@@ -301,6 +302,7 @@ void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t lin
 
 void mp_free_internal(void* ptr, const char* file, uint32_t line)
 {
+#ifdef MP_WARN_NULL
 	if (ptr == NULL)
 	{
 		char msg[MP_MSG_LEN];
@@ -308,6 +310,7 @@ void mp_free_internal(void* ptr, const char* file, uint32_t line)
 		MP_MESSAGE(msg);
 		return;
 	}
+#endif
 	mp_alloc_count--;
 	free(ptr);
 }
@@ -526,6 +529,12 @@ void* mp_realloc_internal(void* ptr, size_t size, const char* file, uint32_t lin
 
 void mp_free_internal(void* ptr, const char* file, uint32_t line)
 {
+#ifndef MP_WARN_NULL
+	if (ptr == NULL)
+	{
+		return;
+	}
+#endif
 	struct MemBlock* block = mp_remove(ptr);
 	if (block == NULL)
 	{
