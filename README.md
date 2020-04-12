@@ -43,8 +43,11 @@ Define MP_CHECK_FULL to use the full library
 -> This value should be a character not often used to avoid false negatives since overflow can't be detected if the same character is written
 -> DO NOT use '\0' or 0 as it is the most common character to overflow
 * MP_FILL_ON_FREE to fill buffer on free with MP_BUFFER_PAD_VAL, this is to avoid reading a pointers data after it has been freed and not overwritten by others
+* MP_MESSAGE (default puts) define your own message callback
 
 * MP_CHECK_FULL to define MP_REPLACE_STD, MP_CHECK_OVERFLOW, MP_FILL_ON_FREE
+
+
 
 ## Output
 By default magpie will print a message to the console using puts
